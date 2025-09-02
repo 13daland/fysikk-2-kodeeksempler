@@ -1,0 +1,57 @@
+import math
+import matplotlib.pyplot as plt
+
+# Konstanter
+m = 0.400                       # massen av gjenstanden, kg
+
+theta_deg = 30          # vinkel for skråplanet
+my = 0.35                       # friksjonstall
+g = 9.81                        # tyngdeakselerasjon, m/s^2
+
+theta = theta_deg * math.pi / 180
+
+
+# Konstante krefter
+Gx = m*g*math.sin(theta)        # tyngdekraft langs skråplanet, N
+Gy = m*g*math.cos(theta)        # tyngdekraft normalt på skråplanet, N
+N = Gy                          # normalkraft på gjenstanden, N
+
+
+# Variable krefter, utregning av kraftsum og akselerasjon
+def a(vel):
+    R = -vel/abs(vel)*my*N      # friksjonskraft, motsatt retning av fart
+    sum_F = -Gx + R             # kraftsum, N
+    aks = sum_F/m               # akselerasjon, m/s
+    return aks
+
+
+# Startverdier
+s = 0                   # startposisjon, m
+v = 3.20                # startfart, m/s
+t = 0                   # starttid, s
+
+# Lister for lagring av data
+ss = [s]
+vv = [v]
+tt = [t]
+
+# Simulering av bevegelse
+dt = 0.001                  # tidssteg i simulering, s
+
+while s >= 0:               # krav for stopp av simulering
+    v = v + a(v)*dt         # regner ut ny fart
+    s = s + v*dt            # regner ut ny posisjon
+    t = t + dt              # går til neste tidspunkt
+
+    # Lagring av verdier
+    vv.append(v)
+    ss.append(s)
+    tt.append(t)
+
+# Tegning av graf
+plt.plot(tt, vv)                        # lager grafen
+plt.xlabel("$t$ / s")                  # x-akse-tittel
+plt.ylabel("$v$ / (m/s)")              # y-akse-tittel
+plt.title("Fartsgraf langs skråplan")  # tittel på grafen
+plt.grid()                             # legger til rutenett
+plt.show()                             # viser grafen

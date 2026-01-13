@@ -1,0 +1,336 @@
+
+import tkinter as tk
+from tkinter import messagebox
+import numpy as np
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.colors import LogNorm
+
+# =================================================
+# FYSISKE KONSTANTER OG NUMERISKE PARAMETRE
+# =================================================
+
+k = 8.9875517923e9
+eps = 1e-12
+
+xmin, xmax = -0.2, 0.2
+ymin, ymax = -0.2, 0.2
+N = 250
+
+STEP = 6
+SCALE = 50
+R_CUT = 0.01
+
+MAX_CHARGES = 8
+
+# =================================================
+# GUI-APP
+# =================================================
+
+class FieldApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Elektrisk felt – interaktiv")
+
+        # Liste over ladninger (widgets)
+        self.charges = []
+
+        # Midlertidig lagring av q når vi skal plassere ny ladning med klikk
+        self.pending_q = None
+
+        # Mode: 1 = vektorfelt, 2 = kontur
+        self.mode = 1
+
+        # Holder styr på om colorbar er laget
+        self.colorbar_created = False
+
+        # Hvilken ladning som evt. dras (index)
+        self.dragging_index = None
+
+        # -------------------------
+        # VENSTRE PANEL (kontroller)
+        # -------------------------
+        control_frame = tk.Frame(root)
+        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+
+        tk.Label(control_frame, text="Ladninger (maks 8)").pack()
+
+        self.charge_frame = tk.Frame(control_frame)
+        self.charge_frame.pack()
+
+        # Ny ladning
+        tk.Label(control_frame, text="Ny ladning q (C):").pack(pady=(10, 0))
+        self.new_q_entry = tk.Entry(control_frame)
+        self.new_q_entry.insert(0, "1e-9")
+        self.new_q_entry.pack()
+
+        tk.Button(control_frame, text="Plasser ny ladning", command=self.start_place_charge).pack(pady=2)
+
+        # MODE-bryter
+        tk.Button(control_frame, text="Bytt MODE (vektor / kontur)", command=self.toggle_mode).pack(pady=8)
+
+        # Tilfeldige posisjoner
+        tk.Button(control_frame, text="Tilfeldige posisjoner", command=self.randomize_positions).pack(pady=4)
+
+        # Oppdater-knapp
+        tk.Button(control_frame, text="Oppdater figur", command=self.update_plot).pack(pady=8)
+
+        # -------------------------
+        # HØYRE PANEL (figur)
+        # -------------------------
+        fig_frame = tk.Frame(root)
+        fig_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        self.fig, self.ax = plt.subplots(figsize=(6, 6))
+        self.canvas = FigureCanvasTkAgg(self.fig, master=fig_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Musekoblinger
+        self.canvas.mpl_connect("button_press_event", self.on_mouse_press)
+        self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
+        self.canvas.mpl_connect("button_release_event", self.on_mouse_release)
+
+        # Første plot
+        self.update_plot()
+
+    # =================================================
+    # GUI-FUNKSJONER
+    # =================================================
+
+    def toggle_mode(self):
+        self.mode = 2 if self.mode == 1 else 1
+        self.update_plot()
+
+    def start_place_charge(self):
+        if len(self.charges) >= MAX_CHARGES:
+            messagebox.showerror("Feil", "Maks 8 ladninger.")
+            return
+
+        try:
+            q = float(self.new_q_entry.get())
+        except ValueError:
+            messagebox.showerror("Feil", "Ugyldig verdi for q.")
+            return
+
+        self.pending_q = q
+
+    # ------------------ MUS ------------------
+
+    def on_mouse_press(self, event):
+        if event.inaxes != self.ax:
+            return
+
+        # Hvis vi er i "legg til ny ladning"-modus
+        if self.pending_q is not None:
+            x = event.xdata
+            y = event.ydata
+            q = self.pending_q
+            self.pending_q = None
+            self.add_charge(q, x, y)
+            return
+
+        # Ellers: sjekk om vi klikker nær en eksisterende ladning
+        charges = self.read_charges()
+        if not charges:
+            return
+
+        click_x = event.xdata
+        click_y = event.ydata
+
+        pick_radius = 0.015  # meter
+
+        for i, (q, xq, yq) in enumerate(charges):
+            dx = click_x - xq
+            dy = click_y - yq
+            if np.sqrt(dx*dx + dy*dy) < pick_radius:
+                self.dragging_index = i
+                return
+
+    def on_mouse_move(self, event):
+        if self.dragging_index is None:
+            return
+        if event.inaxes != self.ax:
+            return
+
+        x = event.xdata
+        y = event.ydata
+
+        # Oppdater entry-feltene
+        c = self.charges[self.dragging_index]
+        c["x_entry"].delete(0, tk.END)
+        c["x_entry"].insert(0, f"{x:.4f}")
+        c["y_entry"].delete(0, tk.END)
+        c["y_entry"].insert(0, f"{y:.4f}")
+
+        # Oppdater figur kontinuerlig
+        self.update_plot()
+
+    def on_mouse_release(self, event):
+        self.dragging_index = None
+
+    # ------------------ LADNINGER ------------------
+
+    def add_charge(self, q, x, y):
+        if len(self.charges) >= MAX_CHARGES:
+            return
+
+        row = tk.Frame(self.charge_frame)
+        row.pack(fill=tk.X, pady=2)
+
+        q_entry = tk.Entry(row, width=10)
+        q_entry.insert(0, str(q))
+        q_entry.pack(side=tk.LEFT)
+
+        x_entry = tk.Entry(row, width=8)
+        x_entry.insert(0, f"{x:.4f}")
+        x_entry.pack(side=tk.LEFT)
+
+        y_entry = tk.Entry(row, width=8)
+        y_entry.insert(0, f"{y:.4f}")
+        y_entry.pack(side=tk.LEFT)
+
+        btn = tk.Button(row, text="Slett")
+        btn.pack(side=tk.LEFT)
+
+        charge = {
+            "q_entry": q_entry,
+            "x_entry": x_entry,
+            "y_entry": y_entry,
+            "frame": row
+        }
+
+        btn.config(command=lambda c=charge: self.delete_charge(c))
+
+        self.charges.append(charge)
+        self.update_plot()
+
+    def delete_charge(self, charge):
+        charge["frame"].destroy()
+        self.charges.remove(charge)
+        self.update_plot()
+
+    def read_charges(self):
+        result = []
+        for c in self.charges:
+            try:
+                q = float(c["q_entry"].get())
+                x = float(c["x_entry"].get())
+                y = float(c["y_entry"].get())
+                result.append((q, x, y))
+            except ValueError:
+                pass
+        return result
+
+    def randomize_positions(self):
+        for c in self.charges:
+            x = np.random.uniform(xmin, xmax)
+            y = np.random.uniform(ymin, ymax)
+
+            c["x_entry"].delete(0, tk.END)
+            c["x_entry"].insert(0, f"{x:.4f}")
+            c["y_entry"].delete(0, tk.END)
+            c["y_entry"].insert(0, f"{y:.4f}")
+
+        self.update_plot()
+
+    # =================================================
+    # FYSIKK + PLOTTING
+    # =================================================
+
+    def update_plot(self):
+        self.ax.clear()
+
+        charges = self.read_charges()
+
+        x = np.linspace(xmin, xmax, N)
+        y = np.linspace(ymin, ymax, N)
+        X, Y = np.meshgrid(x, y)
+
+        Ex = np.zeros_like(X)
+        Ey = np.zeros_like(Y)
+
+        for q, xq, yq in charges:
+            Rx = X - xq
+            Ry = Y - yq
+            R2 = Rx**2 + Ry**2 + eps
+            R = np.sqrt(R2)
+
+            Ex += k * q * Rx / (R2 * R)
+            Ey += k * q * Ry / (R2 * R)
+
+        E = np.sqrt(Ex**2 + Ey**2)
+
+        if self.mode == 1:
+            Xs = X[::STEP, ::STEP]
+            Ys = Y[::STEP, ::STEP]
+            Exs = Ex[::STEP, ::STEP]
+            Eys = Ey[::STEP, ::STEP]
+            Es = E[::STEP, ::STEP]
+
+            mask = np.ones_like(Xs, dtype=bool)
+            for q, xq, yq in charges:
+                R = np.sqrt((Xs - xq)**2 + (Ys - yq)**2)
+                mask &= (R > R_CUT)
+
+            Xp = Xs[mask]
+            Yp = Ys[mask]
+            Exp = Exs[mask]
+            Eyp = Eys[mask]
+            Ep = Es[mask]
+
+            if len(Ep) > 0 and np.isfinite(Ep).any():
+                Emin = Ep.min()
+                Emax = Ep.max()
+
+                if Emin > 0 and Emax > Emin:
+                    norm = LogNorm(vmin=Emin, vmax=Emax)
+                else:
+                    norm = None
+
+                Exn = Exp / (Ep + eps)
+                Eyn = Eyp / (Ep + eps)
+
+                qv = self.ax.quiver(
+                    Xp, Yp, Exn, Eyn, Ep,
+                    cmap="viridis",
+                    norm=norm,
+                    scale=SCALE,
+                    scale_units="xy"
+                )
+
+                if norm is not None and not self.colorbar_created:
+                    self.fig.colorbar(qv, ax=self.ax, label="|E| (log)")
+                    self.colorbar_created = True
+
+            self.ax.set_title("Elektrisk felt – vektorfelt")
+
+        else:
+            if len(charges) > 0:
+                levels = np.logspace(np.log10(E.min() + 1e-3), np.log10(E.max()), 30)
+                self.ax.contour(X, Y, E, levels=levels, cmap="viridis")
+
+            self.ax.set_title("Elektrisk felt – konturlinjer")
+
+        for q, xq, yq in charges:
+            if q > 0:
+                self.ax.plot(xq, yq, "ro")
+            else:
+                self.ax.plot(xq, yq, "bo")
+
+        self.ax.set_xlim(xmin, xmax)
+        self.ax.set_ylim(ymin, ymax)
+        self.ax.set_aspect("equal")
+        self.ax.set_xlabel("x (m)")
+        self.ax.set_ylabel("y (m)")
+
+        self.canvas.draw()
+
+# =================================================
+# START PROGRAMMET
+# =================================================
+
+root = tk.Tk()
+app = FieldApp(root)
+root.mainloop()

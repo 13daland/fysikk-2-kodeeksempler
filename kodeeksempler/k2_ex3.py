@@ -10,18 +10,19 @@ v0 = 42.7               # startfart, m/s
 y0 = 1.20               # starthøyde, m
 theta_deg = 40          # vinkelen, i grader
 
-theta = theta_deg * math.pi / 180  # konverterer vinkelen til radianer
+theta = theta_deg * math.pi / 180  # konverterer vinkelen til radianer for math-pakken
 
 # Konstante krefter
-G = np.array([0, -m*g])     # tyngden i N
+G = np.asarray([0, -m*g])     # tyngdekraft, N
 
 
 # Variable krefter, utregning av kraftsum og akselerasjon
-def a(vel):                   # akselerasjonsfunksjon
-    e_v = np.linalg.norm(vel)          # enhetsvektor for farten
-    L = -k*np.linalg.norm(vel)**2 * e_v  # luftmotstandsvektor, N
-    sum_F = G + L            # vektorsummen av kreftene, N
-    aks = sum_F/m            # akselerasjonsvektoren, m/s^2
+def a(vel: np.ndarray):             # akselerasjonsfunksjon
+    norm_v = np.linalg.norm(vel)    # størrelse på fartsvektoren, m/s
+    e_v = vel/norm_v                # enhetsvektor for farten
+    L = - k * norm_v ** 2 * e_v     # luftmotstandsvektor, N
+    sum_F = G + L                   # vektorsummen av kreftene, N
+    aks = sum_F/m                   # akselerasjonsvektoren, m/s^2
     return aks
 
 
